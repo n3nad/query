@@ -1,13 +1,19 @@
-import {CacheStore, NetworkHandler, QueryConfig, QueryEntry, QueryEntryResponse} from "./types";
+import { CacheStore, NetworkHandler, QueryConfig, QueryEntry, QueryEntryResponse } from "./types";
 
+const defaultConfig: QueryConfig = {
+  cacheExpiry: 1000 * 60 * 5,
+  ignoreCacheOnErrors: false,
+  errorRetryDelay: 1000,
+  errorRetryCount: 3
+}
 
 export class Query<RequestConf> {
   config: QueryConfig
   cache
   networkHandler: NetworkHandler<RequestConf>
   cacheSubscribers: { [key: string]: Array<(entry: QueryEntryResponse) => void> } = {}
-  constructor(settings: { config: QueryConfig, cache: CacheStore, networkHandler: NetworkHandler<RequestConf>}) {
-    this.config = settings.config;
+  constructor(settings: { config: Partial<QueryConfig>, cache: CacheStore, networkHandler: NetworkHandler<RequestConf>}) {
+    this.config = { ...defaultConfig, ...settings.config };
     this.cache = settings.cache;
     this.networkHandler = settings.networkHandler
   }
@@ -56,6 +62,15 @@ export class Query<RequestConf> {
     }
 
     return this.entryToResponse(entry)
+  }
+
+  requestAndSubscribe(config: RequestConf, callback: (entry: QueryEntryResponse) => void) {
+    const entryResponse = this.getCurrentStateForEntry(config)
+    callback(entryResponse)
+    const unsubscribe = this.subscribeToCacheKey(config, callback)
+    const responsePromise = this.request(config)
+
+    return [responsePromise, unsubscribe]
   }
 
   async notifyAndClearRequestSubscribers(entry: QueryEntry, entryResponse: QueryEntryResponse) {

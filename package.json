@@ -13,6 +13,7 @@
     "vite": "^5.2.0"
   },
   "dependencies": {
+    "stable-hash": "^0.0.4",
     "wretch": "^2.8.1"
   }
 }

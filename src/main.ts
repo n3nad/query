@@ -2,6 +2,24 @@ import './style.css'
 import typescriptLogo from './typescript.svg'
 import viteLogo from '/vite.svg'
 import { setupCounter } from './counter.ts'
+import {Query} from "./Query";
+import {GraphQLHandler} from "./GraphQLHandler";
+import {CacheHandler} from "./CacheHandler";
+import {GraphQlRequestConf} from "./types";
+
+const query = new Query<GraphQlRequestConf>({ config: {}, networkHandler: new GraphQLHandler({url: 'https://swapi-graphql.netlify.app/.netlify/functions/index', headers: {}}), cache: new CacheHandler()})
+const requestParams = {type: 'query' as 'query' | 'mutation', query: `query { allFilms { films { title } } }`, variables: {}}
+// console.log(query.getCurrentStateForEntry(requestParams))
+// query.subscribeToCacheKey(requestParams, (entry) => {
+//   console.log(entry)
+// })
+
+function fetchFilms() {
+  const [response, unsubscribe] = query.requestAndSubscribe(requestParams, (entry) => console.log(entry))
+
+}
+
+fetchFilms()
 
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
   <div>
