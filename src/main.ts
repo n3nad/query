@@ -16,6 +16,9 @@ const requestParams = {type: 'query' as 'query' | 'mutation', query: `query { al
 
 function fetchFilms() {
   const [response, unsubscribe] = query.requestAndSubscribe(requestParams, (entry) => console.log(entry))
+  response.then((entry) => {
+    console.log(`entry: ${entry}`)
+  })
 
 }
 

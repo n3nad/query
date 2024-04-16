@@ -65,8 +65,6 @@ export class Query<RequestConf> {
   }
 
   requestAndSubscribe(config: RequestConf, callback: (entry: QueryEntryResponse) => void) {
-    const entryResponse = this.getCurrentStateForEntry(config)
-    callback(entryResponse)
     const unsubscribe = this.subscribeToCacheKey(config, callback)
     const responsePromise = this.request(config)
 
