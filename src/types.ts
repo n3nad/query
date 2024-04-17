@@ -7,6 +7,7 @@ export interface QueryEntry {
   isLoading: boolean
   expiresAt: number
   lastRequestAt: number
+  lastResponseAt: number
   subscribers: Array<[(entry: QueryEntryResponse) => void, (error: any) => void]>
 }
 
@@ -28,6 +29,7 @@ export interface NetworkHandler<RequestConf> {
 
 export interface QueryConfig {
   cacheExpiry: number
+  ignoreCache: boolean
   ignoreCacheOnErrors: boolean
   errorRetryDelay: number
   errorRetryCount: number

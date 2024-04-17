@@ -2,6 +2,7 @@ import { CacheStore, NetworkHandler, QueryConfig, QueryEntry, QueryEntryResponse
 
 const defaultConfig: QueryConfig = {
   cacheExpiry: 1000 * 60 * 5,
+  ignoreCache: false,
   ignoreCacheOnErrors: false,
   errorRetryDelay: 1000,
   errorRetryCount: 3
@@ -29,29 +30,52 @@ export class Query<RequestConf> {
     return this.entryToResponse(emptyEntry)
   }
 
-  async request(config: RequestConf) {
-    const key = this.cache.serialize(config)
+  getCacheKey(config: RequestConf, localQueryConfig: Partial<QueryConfig> = {}) {
+    const mergedConfig = { ...this.config, ...localQueryConfig }
+    return this.cache.serialize({...config, ...mergedConfig})
+  }
+
+  async request(config: RequestConf, localQueryConfig: Partial<QueryConfig> = {}): Promise<QueryEntryResponse> {
+    // merge the default config with the provided config
+    const mergedConfig = { ...this.config, ...localQueryConfig }
+    const key = this.getCacheKey(config, localQueryConfig)
     let entry = this.cache.get(key)
     if (!entry) {
       entry = this.cache.set(key, this.createEmptyEntry())
     }
 
-    if (this.shouldMakeRequest(entry)) {
+    if (this.shouldMakeRequest(entry, mergedConfig)) {
+      const thisRequestAt = Date.now()
       try {
         entry.isLoading = true;
+        entry.lastRequestAt = thisRequestAt
         this.notifyCacheSubscribers(key, this.entryToResponse(entry))
+
         const newData = await this.networkHandler.request(config)
-        entry = this.cache.set(key, {...entry, data: newData, error: null, isLoading: false, expiresAt: Date.now() + this.config.cacheExpiry, lastRequestAt: Date.now() })
+        if (entry.lastRequestAt > thisRequestAt) {
+          return new Promise((resolve, reject) => {
+            entry!.subscribers.push([resolve, reject])
+          })
+        }
+        entry = this.cache.set(key, {...entry, data: newData, error: null, isLoading: false, expiresAt: Date.now() + mergedConfig.cacheExpiry, lastResponseAt: Date.now() })
+
         const newEntryResponse = this.entryToResponse(entry)
         await this.notifyAndClearRequestSubscribers(entry, newEntryResponse)
         return newEntryResponse
       } catch (error) {
-        entry = this.cache.set(key, { ...entry, data: null, error, isLoading: false, expiresAt: Date.now() + this.config.cacheExpiry, lastRequestAt: Date.now() })
+        if (entry.lastRequestAt > thisRequestAt) {
+          return new Promise((resolve, reject) => {
+            entry!.subscribers.push([resolve, reject])
+          })
+        }
+        entry = this.cache.set(key, { ...entry, data: null, error, isLoading: false, expiresAt: Date.now() + mergedConfig.cacheExpiry, lastResponseAt: Date.now() })
         const newEntryResponse = this.entryToResponse(entry)
         await this.notifyAndClearRequestSubscribers(entry, newEntryResponse)
         throw newEntryResponse
       } finally {
-        this.notifyCacheSubscribers(key, this.entryToResponse(entry))
+        if (thisRequestAt === entry.lastRequestAt) {
+          this.notifyCacheSubscribers(key, this.entryToResponse(entry))
+        }
       }
     }
 
@@ -64,8 +88,11 @@ export class Query<RequestConf> {
     return this.entryToResponse(entry)
   }
 
-  requestAndSubscribe(config: RequestConf, callback: (entry: QueryEntryResponse) => void) {
-    const unsubscribe = this.subscribeToCacheKey(config, callback)
+  requestAndSubscribe(
+    { config, callback, localConfig = {} }: { config: RequestConf, localConfig?: Partial<QueryConfig>, callback: (entry: QueryEntryResponse) => void }
+  ): [Promise<QueryEntryResponse>, () => void] {
+    const key = this.getCacheKey(config, localConfig)
+    const unsubscribe = this.subscribeToCacheKey(key, callback)
     const responsePromise = this.request(config)
 
     return [responsePromise, unsubscribe]
@@ -84,12 +111,12 @@ export class Query<RequestConf> {
       isLoading: false,
       expiresAt: 0,
       lastRequestAt: 0,
+      lastResponseAt: 0,
       subscribers: []
     }
   }
 
-  subscribeToCacheKey(config: RequestConf, callback: (entry: QueryEntryResponse) => void) {
-    const key = this.cache.serialize(config)
+  subscribeToCacheKey(key: string, callback: (entry: QueryEntryResponse) => void) {
     if (!this.cacheSubscribers[key]) {
       this.cacheSubscribers[key] = []
     }
@@ -106,9 +133,10 @@ export class Query<RequestConf> {
     }
   }
 
-  private shouldMakeRequest(entry: QueryEntry) {
-    // TODO: Add support for checking against error
-    return entry.expiresAt < Date.now() && !entry.isLoading
+  private shouldMakeRequest(entry: QueryEntry, queryConfig: QueryConfig) {
+    if (queryConfig.ignoreCache) return true
+
+    return !entry.isLoading && (entry.expiresAt < Date.now()  || queryConfig.ignoreCacheOnErrors && entry.error)
   }
 
   private entryToResponse(entry: QueryEntry): QueryEntryResponse {
