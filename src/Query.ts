@@ -52,10 +52,8 @@ export class Query<RequestConf> {
         this.notifyCacheSubscribers(key, this.entryToResponse(entry))
 
         const newData = await this.networkHandler.request(config)
-        if (entry.lastRequestAt > thisRequestAt) {
-          return new Promise((resolve, reject) => {
-            entry!.subscribers.push([resolve, reject])
-          })
+        if (thisRequestAt !== entry.lastRequestAt) {
+          return this.getRequestSubscription(entry)
         }
         entry = this.cache.set(key, {...entry, data: newData, error: null, isLoading: false, expiresAt: Date.now() + mergedConfig.cacheExpiry, lastResponseAt: Date.now() })
 
@@ -63,10 +61,8 @@ export class Query<RequestConf> {
         await this.notifyAndClearRequestSubscribers(entry, newEntryResponse)
         return newEntryResponse
       } catch (error) {
-        if (entry.lastRequestAt > thisRequestAt) {
-          return new Promise((resolve, reject) => {
-            entry!.subscribers.push([resolve, reject])
-          })
+        if (thisRequestAt !== entry.lastRequestAt) {
+          return this.getRequestSubscription(entry)
         }
         entry = this.cache.set(key, { ...entry, data: null, error, isLoading: false, expiresAt: Date.now() + mergedConfig.cacheExpiry, lastResponseAt: Date.now() })
         const newEntryResponse = this.entryToResponse(entry)
@@ -80,12 +76,16 @@ export class Query<RequestConf> {
     }
 
     if (entry.isLoading) {
-      return new Promise((resolve, reject) => {
-        entry.subscribers.push([resolve, reject])
-      })
+      return this.getRequestSubscription(entry)
     }
 
     return this.entryToResponse(entry)
+  }
+
+  private getRequestSubscription(entry: QueryEntry) {
+    return new Promise<QueryEntryResponse>((resolve, reject) => {
+      entry.subscribers.push([resolve, reject])
+    })
   }
 
   requestAndSubscribe(
